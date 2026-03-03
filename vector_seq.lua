@@ -1,4 +1,4 @@
--- scriptname: Vector Sequencer for Norns based on https://dmachinery.net/2013/01/05/the-vector-sequencer/
+-- scriptname: Victor Vector. A vector sequencer for Norns based on https://dmachinery.net/2013/01/05/the-vector-sequencer/
 -- v1.0.0 @hugenerd
 -- llllllll.co/t/??????
 
