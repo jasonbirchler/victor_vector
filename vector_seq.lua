@@ -41,7 +41,9 @@ state = {
     -- Output mode: "engine" or "midi"
     output_mode = "engine",
     -- Currently playing notes (for note off tracking)
-    active_notes = {}
+    active_notes = {},
+    -- Grid modifier key state (1,3 held for toggling active state)
+    modifier_held = false
 }
 
 -- UI Pages
@@ -226,16 +228,35 @@ g.key = function(x, y, z)
             return
         end
 
+        -- Check if modifier button (1,3) for toggling active state
+        if x == 1 and y == 3 then
+            state.modifier_held = true
+            grid_redraw()
+            return
+        end
+
         -- Check if in 5x5 area (columns 3-7, rows 3-7)
         local grid_x = x - GRID_OFFSET_X + 1
         local grid_y = y - GRID_OFFSET_Y + 1
 
         if grid_x >= 1 and grid_x <= 5 and grid_y >= 1 and grid_y <= 5 then
-            state.sel_x = grid_x
-            state.sel_y = grid_y
-            ui.current_page = PAGES.NOTE
+            if state.modifier_held then
+                -- Toggle active state of the pressed cell
+                cells[grid_x][grid_y].active = not cells[grid_x][grid_y].active
+            else
+                -- Select the cell for editing
+                state.sel_x = grid_x
+                state.sel_y = grid_y
+                ui.current_page = PAGES.NOTE
+            end
             grid_redraw()
             redraw()
+        end
+    else -- Key release (z == 0)
+        -- Check if modifier button (1,3) released
+        if x == 1 and y == 3 then
+            state.modifier_held = false
+            grid_redraw()
         end
     end
 end
@@ -273,6 +294,9 @@ function grid_redraw()
     else
         g:led(1, 1, state.playing and 7 or 3)
     end
+
+    -- Modifier button (1,3) indicator
+    g:led(1, 3, state.modifier_held and 7 or 3)
 
     g:refresh()
 end
