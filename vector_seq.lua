@@ -79,9 +79,9 @@ ui = {
     selected_param = 1
 }
 
--- Grid offset for centering 5x5 on 8x8
-local GRID_OFFSET_X = 2
-local GRID_OFFSET_Y = 2
+-- Grid offset for centering 5x5 on 8x8 (rows/cols 3-7)
+local GRID_OFFSET_X = 3
+local GRID_OFFSET_Y = 3
 
 -- Blink timer for start/stop indicator
 local blink_state = false
@@ -210,8 +210,8 @@ end
 -- Grid key handler
 g.key = function(x, y, z)
     if z == 1 then -- Key press
-        -- Check if start/stop button (8,8)
-        if x == 8 and y == 8 then
+        -- Check if start/stop button (1,1)
+        if x == 1 and y == 1 then
             state.playing = not state.playing
             if not state.playing then
                 -- Stop all MIDI notes
@@ -226,7 +226,7 @@ g.key = function(x, y, z)
             return
         end
 
-        -- Check if in 5x5 area (columns 2-6, rows 2-6)
+        -- Check if in 5x5 area (columns 3-7, rows 3-7)
         local grid_x = x - GRID_OFFSET_X + 1
         local grid_y = y - GRID_OFFSET_Y + 1
 
@@ -269,9 +269,9 @@ function grid_redraw()
 
     -- Start/stop button with blink when playing
     if state.playing and blink_state then
-        g:led(8, 8, 15)
+        g:led(1, 1, 15)
     else
-        g:led(8, 8, state.playing and 7 or 3)
+        g:led(1, 1, state.playing and 7 or 3)
     end
 
     g:refresh()
