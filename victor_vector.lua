@@ -1,6 +1,15 @@
--- scriptname: Victor Vector. A vector sequencer for Norns based on https://dmachinery.net/2013/01/05/the-vector-sequencer/
+-- Victor Vector.
+-- A vector sequencer for Norns
+--
 -- v1.0.0 @hugenerd
 -- llllllll.co/t/??????
+--
+-- ENC1 = Change Pages
+-- ENC2 = Scroll params
+-- ENC3 = Change param value
+--
+-- K2 = Toggle cell state
+-- K3 = Reset start point
 
 engine.name = "PolyPerc"
 
@@ -16,14 +25,10 @@ local midi_device = nil
 -- cells[x][y] = { note, velocity, duration, active }
 cells = {}
 
--- Vector movement parameters (global)
-vectors = {
+-- Vector reset position (global - where playback resets to)
+reset_pos = {
     reset_x = 1,
-    reset_y = 1,
-    xt = 1,
-    x = 1,
-    yt = 1,
-    y = 0
+    reset_y = 1
 }
 
 -- Playback and UI state
@@ -56,18 +61,18 @@ PAGES = {
 page_params = {
     [PAGES.GLOBAL] = {
         { name = "TEMPO", key = "tempo", min = 20, max = 300, default = 120, format = "%d" },
-        { name = "OUTPUT", key = "output", options = {"engine", "midi"}, default = 1 }
+        { name = "OUTPUT", key = "output", options = {"engine", "midi"}, default = 1 },
+        { name = "RESET X", key = "reset_x", min = 1, max = 5, default = 1, format = "%d" },
+        { name = "RESET Y", key = "reset_y", min = 1, max = 5, default = 1, format = "%d" }
     },
     [PAGES.NOTE] = {
         { name = "CELL X", key = "cell_x", min = 1, max = 5, default = 1, format = "%d" },
         { name = "CELL Y", key = "cell_y", min = 1, max = 5, default = 1, format = "%d" },
         { name = "NOTE", key = "note", min = 0, max = 127, default = 60, format = "%d" },
-        { name = "VELOCITY", key = "velocity", min = 0, max = 127, default = 100, format = "%d" },
+        { name = "VELOCITY", key = "velocity", min = 0, max = 127, default = 64, format = "%d" },
         { name = "DURATION", key = "duration", min = 0.1, max = 4.0, default = 0.5, format = "%.2f" },
         { name = "ACTIVE", key = "active", options = {"off", "on"}, default = 2 },
         { name = "PLAY POS", key = "play_pos", read_only = true },
-        { name = "RESET X", key = "reset_x", min = 1, max = 5, default = 1, format = "%d" },
-        { name = "RESET Y", key = "reset_y", min = 1, max = 5, default = 1, format = "%d" },
         { name = "XT", key = "xt", min = 1, max = 16, default = 1, format = "%d" },
         { name = "X STEP", key = "x", min = 0, max = 4, default = 1, format = "%d" },
         { name = "YT", key = "yt", min = 1, max = 16, default = 1, format = "%d" },
@@ -100,9 +105,14 @@ function init()
         for y = 1, 5 do
             cells[x][y] = {
                 note = 36 + (x-1) * 12 + (y-1) * 2, -- Pentatonic-ish distribution
-                velocity = 100,
+                velocity = 64,
                 duration = 0.5,
-                active = (x + y) % 3 ~= 0 -- Some cells active by default
+                active = (x + y) % 3 ~= 0, -- Some cells active by default
+                -- Vector movement parameters (per-cell)
+                xt = 1,  -- X trigger interval
+                x = 1,   -- X step size
+                yt = 1,  -- Y trigger interval
+                y = 0    -- Y step size
             }
         end
     end
@@ -150,14 +160,17 @@ function sequencer_clock()
         if state.playing then
             state.tick_count = state.tick_count + 1
 
-            -- Check X movement
-            if state.tick_count % vectors.xt == 0 then
-                state.pos_x = wrap_position(state.pos_x + vectors.x, 1, 5)
+            -- Get current cell's vector parameters
+            local current_cell = cells[state.pos_x][state.pos_y]
+
+            -- Check X movement (using current cell's xt and x)
+            if state.tick_count % current_cell.xt == 0 then
+                state.pos_x = wrap_position(state.pos_x + current_cell.x, 1, 5)
             end
 
-            -- Check Y movement
-            if state.tick_count % vectors.yt == 0 then
-                state.pos_y = wrap_position(state.pos_y + vectors.y, 1, 5)
+            -- Check Y movement (using current cell's yt and y)
+            if state.tick_count % current_cell.yt == 0 then
+                state.pos_y = wrap_position(state.pos_y + current_cell.y, 1, 5)
             end
 
             -- Trigger note if cell is active
@@ -348,6 +361,10 @@ function adjust_param(delta)
             local current = state.output_mode == "engine" and 1 or 2
             local new_val = delta > 0 and 2 or 1
             state.output_mode = param.options[new_val]
+        elseif param.key == "reset_x" then
+            reset_pos.reset_x = util.clamp(reset_pos.reset_x + delta, param.min, param.max)
+        elseif param.key == "reset_y" then
+            reset_pos.reset_y = util.clamp(reset_pos.reset_y + delta, param.min, param.max)
         end
     else -- PAGES.NOTE
         local cell = cells[state.sel_x][state.sel_y]
@@ -364,18 +381,14 @@ function adjust_param(delta)
             cell.duration = util.clamp(cell.duration + delta * 0.1, param.min, param.max)
         elseif param.key == "active" then
             cell.active = not cell.active
-        elseif param.key == "reset_x" then
-            vectors.reset_x = util.clamp(vectors.reset_x + delta, param.min, param.max)
-        elseif param.key == "reset_y" then
-            vectors.reset_y = util.clamp(vectors.reset_y + delta, param.min, param.max)
         elseif param.key == "xt" then
-            vectors.xt = util.clamp(vectors.xt + delta, param.min, param.max)
+            cell.xt = util.clamp(cell.xt + delta, param.min, param.max)
         elseif param.key == "x" then
-            vectors.x = util.clamp(vectors.x + delta, param.min, param.max)
+            cell.x = util.clamp(cell.x + delta, param.min, param.max)
         elseif param.key == "yt" then
-            vectors.yt = util.clamp(vectors.yt + delta, param.min, param.max)
+            cell.yt = util.clamp(cell.yt + delta, param.min, param.max)
         elseif param.key == "y" then
-            vectors.y = util.clamp(vectors.y + delta, param.min, param.max)
+            cell.y = util.clamp(cell.y + delta, param.min, param.max)
         end
     end
 end
@@ -391,8 +404,8 @@ function key(n, z)
 
         elseif n == 3 then
             -- Reset playback position to reset vector
-            state.pos_x = vectors.reset_x
-            state.pos_y = vectors.reset_y
+            state.pos_x = reset_pos.reset_x
+            state.pos_y = reset_pos.reset_y
             state.tick_count = 0
             grid_redraw()
             redraw()
@@ -407,6 +420,10 @@ function get_param_value(param)
             return string.format(param.format, params:get("clock_tempo"))
         elseif param.key == "output" then
             return state.output_mode:upper()
+        elseif param.key == "reset_x" then
+            return string.format(param.format, reset_pos.reset_x)
+        elseif param.key == "reset_y" then
+            return string.format(param.format, reset_pos.reset_y)
         end
     else -- PAGES.NOTE
         local cell = cells[state.sel_x][state.sel_y]
@@ -425,18 +442,14 @@ function get_param_value(param)
             return cell.active and "ON" or "OFF"
         elseif param.key == "play_pos" then
             return "[" .. state.pos_x .. "," .. state.pos_y .. "]"
-        elseif param.key == "reset_x" then
-            return string.format(param.format, vectors.reset_x)
-        elseif param.key == "reset_y" then
-            return string.format(param.format, vectors.reset_y)
         elseif param.key == "xt" then
-            return string.format(param.format, vectors.xt)
+            return string.format(param.format, cell.xt)
         elseif param.key == "x" then
-            return string.format(param.format, vectors.x)
+            return string.format(param.format, cell.x)
         elseif param.key == "yt" then
-            return string.format(param.format, vectors.yt)
+            return string.format(param.format, cell.yt)
         elseif param.key == "y" then
-            return string.format(param.format, vectors.y)
+            return string.format(param.format, cell.y)
         end
     end
     return ""
@@ -493,13 +506,13 @@ function redraw()
     end
 
     -- Page indicator at bottom
-    -- screen.level(5)
-    -- screen.move(5, 60)
-    -- screen.text("E1:PAGE  E2:SELECT  E3:ADJ")
+    screen.level(5)
+    screen.move(5, 60)
+    screen.text("E1:PAGE  E2:PARAM  E3:VALUE")
 
     -- Playing indicator
-    screen.move(110, 60)
-    screen.text(state.playing and "PLAY" or "STOP")
+    -- screen.move(110, 60)
+    -- screen.text(state.playing and "PLAY" or "STOP")
 
     screen.update()
 end
