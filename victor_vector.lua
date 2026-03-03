@@ -86,6 +86,11 @@ ui = {
     selected_param = 1
 }
 
+-- Screen display constants
+local SCREEN_WIDTH = 128
+local PAGE_INDICATOR_Y = 6
+local PAGE_INDICATOR_PADDING = 4
+
 -- Grid offset for centering 5x5 on 8x8 (rows/cols 3-7)
 local GRID_OFFSET_X = 3
 local GRID_OFFSET_Y = 3
@@ -461,14 +466,30 @@ function redraw()
     screen.level(15)
 
     local page_names = {"GLOBAL", "NOTE"}
+    local num_pages = #page_names
     local params_list = page_params[ui.current_page]
 
+    -- Draw page indicator lines at the top
+    local line_width = (SCREEN_WIDTH - ((num_pages + 1) * PAGE_INDICATOR_PADDING)) / num_pages
+    for i = 1, num_pages do
+        local x = PAGE_INDICATOR_PADDING + (i - 1) * (line_width + PAGE_INDICATOR_PADDING)
+        if i == ui.current_page then
+            screen.level(15) -- Active page: bright
+        else
+            screen.level(3)  -- Inactive page: dimmed
+        end
+        screen.move(x, PAGE_INDICATOR_Y)
+        screen.line_rel(line_width, 0)
+        screen.stroke()
+    end
+    screen.level(15)
+
     -- Page title
-    screen.move(5, 10)
+    screen.move(5, 16)
     screen.text("VECTOR SEQ - " .. page_names[ui.current_page])
 
     -- Draw parameters
-    local start_y = 20
+    local start_y = 26
     local line_height = 8
     local visible_count = 5
     local start_idx = 1
@@ -504,15 +525,6 @@ function redraw()
         screen.move(65, y)
         screen.text(value)
     end
-
-    -- Page indicator at bottom
-    screen.level(5)
-    screen.move(5, 60)
-    screen.text("E1:PAGE  E2:PARAM  E3:VALUE")
-
-    -- Playing indicator
-    -- screen.move(110, 60)
-    -- screen.text(state.playing and "PLAY" or "STOP")
 
     screen.update()
 end
