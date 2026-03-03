@@ -48,7 +48,9 @@ state = {
     -- Currently playing notes (for note off tracking)
     active_notes = {},
     -- Grid modifier key state (1,3 held for toggling active state)
-    modifier_held = false
+    modifier_held = false,
+    -- Playback reset button state
+    playback_reset_pressed = false
 }
 
 -- UI Pages
@@ -246,9 +248,17 @@ g.key = function(x, y, z)
             return
         end
 
-        -- Check if modifier button (1,3) for toggling active state
-        if x == 1 and y == 3 then
+        -- Check if modifier button for toggling active state is held
+        if x == 1 and y == 5 then
             state.modifier_held = true
+            grid_redraw()
+            return
+        end
+
+        -- Check if reset is pressed
+        if x == 1 and y == 3 then
+            state.playback_reset_pressed = true
+            reset_playback()
             grid_redraw()
             return
         end
@@ -271,10 +281,18 @@ g.key = function(x, y, z)
             redraw()
         end
     else -- Key release (z == 0)
-        -- Check if modifier button (1,3) released
-        if x == 1 and y == 3 then
+        -- Check if modifier button (1,5) released
+        if x == 1 and y == 5 then
             state.modifier_held = false
             grid_redraw()
+            return
+        end
+
+        -- Check if reset button (1,3) released
+        if x == 1 and y == 3 then
+            state.playback_reset_pressed = false
+            grid_redraw()
+            return
         end
     end
 end
@@ -313,8 +331,11 @@ function grid_redraw()
         g:led(1, 1, state.playing and 7 or 3)
     end
 
-    -- Modifier button (1,3) indicator
-    g:led(1, 3, state.modifier_held and 7 or 3)
+    -- Active State Modifier button (1,3) indicator
+    g:led(1, 5, state.modifier_held and 7 or 3)
+
+    -- Playback reset button (1,5) indicator
+    g:led(1, 3, state.playback_reset_pressed and 7 or 3)
 
     g:refresh()
 end
@@ -406,16 +427,19 @@ function key(n, z)
             cells[state.sel_x][state.sel_y].active = not cells[state.sel_x][state.sel_y].active
             grid_redraw()
             redraw()
-
         elseif n == 3 then
-            -- Reset playback position to reset vector
-            state.pos_x = reset_pos.reset_x
-            state.pos_y = reset_pos.reset_y
-            state.tick_count = 0
-            grid_redraw()
-            redraw()
+            reset_playback()
         end
     end
+end
+
+function reset_playback()
+    -- Reset playback position to reset vector
+    state.pos_x = reset_pos.reset_x
+    state.pos_y = reset_pos.reset_y
+    state.tick_count = 0
+    grid_redraw()
+    redraw()
 end
 
 -- Get current parameter value for display
