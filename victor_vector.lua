@@ -13,7 +13,7 @@
 -- Grid (1,6) = Randomize move vectors (x, y)
 -- Grid (1,7) = Randomize clock vectors (xt, yt)
 -- Grid (1,8) = Restore vector defaults
--- Cell Page "RND STEP" = Randomize x/y step for selected cell
+-- Cell Page "EVENT" = Set event action (none, reset, random step) for selected cell
 
 engine.name = "PolyPerc"
 
@@ -26,7 +26,7 @@ local midi_out = nil
 local midi_device = nil
 
 -- 5x5 grid cell data
--- cells[x][y] = { note, velocity, duration, active, xt, x, yt, y }
+-- cells[x][y] = { note, velocity, duration, active, xt, x, yt, y, event }
 cells = {}
 
 -- Default cell values for restore functionality
@@ -103,11 +103,10 @@ page_params = {
         { name = "VELOCITY", key = "velocity", min = 0, max = 127, default = 64, format = "%d" },
         { name = "DURATION", key = "duration", min = 0.1, max = 4.0, default = 0.5, format = "%.2f" },
         { name = "ACTIVE", key = "active", options = {"off", "on"}, default = 2 },
-        { name = "RESET", key = "reset", options = {"off", "on"}, default = 1 },
+        { name = "EVENT", key = "event", options = {"none", "reset", "random step"}, default = 1 },
         { name = "PLAY POS", key = "play_pos", read_only = true },
         { name = "X STEP", key = "x", min = 0, max = 4, default = 1, format = "%d" },
         { name = "Y STEP", key = "y", min = 0, max = 4, default = 0, format = "%d" },
-        { name = "RND STEP", key = "rnd_step", options = {"off", "on"}, default = 1 },
         { name = "X TIME", key = "xt", min = 1, max = 16, default = 1, format = "%d" },
         { name = "Y TIME", key = "yt", min = 1, max = 16, default = 1, format = "%d" }
     }
@@ -235,8 +234,7 @@ function init()
                 velocity = math.random(64, 127),
                 duration = 0.5,
                 active = (x + y) % 3 ~= 0, -- Some cells active by default
-                reset = false,
-                rnd_step = false,
+                event = "none", -- Options: "none", "reset", "random step"
                 -- Vector movement parameters (per-cell)
                 xt = 1,  -- X trigger interval
                 x = 1,   -- X step size
@@ -320,18 +318,16 @@ function sequencer_clock()
             -- Trigger note if cell is active
             local cell = cells[state.pos_x][state.pos_y]
 
-            -- Randomize x/y step values if rnd_step is enabled
-            if cell.rnd_step then
+            -- Handle event actions
+            if cell.event == "random step" then
                 cell.x = math.random(0, 4)
                 cell.y = math.random(0, 4)
+            elseif cell.event == "reset" then
+                reset_playback()
             end
 
             if cell.active then
                 trigger_note(cell)
-            end
-
-            if cell.reset then
-                reset_playback()
             end
 
             grid_redraw()
@@ -637,8 +633,17 @@ function adjust_param(delta)
             cell.duration = util.clamp(cell.duration + delta * 0.1, param.min, param.max)
         elseif param.key == "active" then
             cell.active = not cell.active
-        elseif param.key == "reset" then
-            cell.reset = not cell.reset
+        elseif param.key == "event" then
+            local event_options = {"none", "reset", "random step"}
+            local current_idx = 1
+            for i, opt in ipairs(event_options) do
+                if opt == cell.event then
+                    current_idx = i
+                    break
+                end
+            end
+            local new_idx = util.clamp(current_idx + delta, 1, #event_options)
+            cell.event = event_options[new_idx]
         elseif param.key == "xt" then
             cell.xt = util.clamp(cell.xt + delta, param.min, param.max)
         elseif param.key == "x" then
@@ -647,8 +652,6 @@ function adjust_param(delta)
             cell.yt = util.clamp(cell.yt + delta, param.min, param.max)
         elseif param.key == "y" then
             cell.y = util.clamp(cell.y + delta, param.min, param.max)
-        elseif param.key == "rnd_step" then
-            cell.rnd_step = not cell.rnd_step
         end
     end
 end
@@ -764,8 +767,8 @@ function get_param_value(param)
             return string.format(param.format, cell.duration)
         elseif param.key == "active" then
             return cell.active and "ON" or "OFF"
-        elseif param.key == "reset" then
-            return cell.reset and "ON" or "OFF"
+        elseif param.key == "event" then
+            return cell.event:upper()
         elseif param.key == "play_pos" then
             return "[" .. state.pos_x .. "," .. state.pos_y .. "]"
         elseif param.key == "xt" then
@@ -776,8 +779,6 @@ function get_param_value(param)
             return string.format(param.format, cell.yt)
         elseif param.key == "y" then
             return string.format(param.format, cell.y)
-        elseif param.key == "rnd_step" then
-            return cell.rnd_step and "ON" or "OFF"
         end
     elseif ui.current_page == PAGES.OUTPUT then
         if param.key == "current_mode" then
