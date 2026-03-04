@@ -103,10 +103,10 @@ page_params = {
         { name = "DURATION", key = "duration", min = 0.1, max = 4.0, default = 0.5, format = "%.2f" },
         { name = "ACTIVE", key = "active", options = {"off", "on"}, default = 2 },
         { name = "PLAY POS", key = "play_pos", read_only = true },
-        { name = "XT", key = "xt", min = 1, max = 16, default = 1, format = "%d" },
         { name = "X STEP", key = "x", min = 0, max = 4, default = 1, format = "%d" },
-        { name = "YT", key = "yt", min = 1, max = 16, default = 1, format = "%d" },
-        { name = "Y STEP", key = "y", min = 0, max = 4, default = 0, format = "%d" }
+        { name = "Y STEP", key = "y", min = 0, max = 4, default = 0, format = "%d" },
+        { name = "X TIME", key = "xt", min = 1, max = 16, default = 1, format = "%d" },
+        { name = "Y TIME", key = "yt", min = 1, max = 16, default = 1, format = "%d" }
     }
 }
 
