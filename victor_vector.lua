@@ -31,6 +31,16 @@ reset_pos = {
     reset_y = 1
 }
 
+-- Available output options
+OUTPUT_OPTIONS = {"PolyPerc", "MIDI"}
+
+-- Engine parameters for PolyPerc
+POLYPERC_PARAMS = {
+    { name = "CUTOFF", key = "cutoff", min = 50, max = 8000, default = 800, format = "%d" },
+    { name = "RELEASE", key = "release", min = 0.1, max = 10.0, default = 1.0, format = "%.2f" },
+    { name = "PW", key = "pw", min = 0.0, max = 1.0, default = 0.5, format = "%.2f" }
+}
+
 -- Playback and UI state
 state = {
     -- Current playback position (1-5, 1-5)
@@ -43,8 +53,15 @@ state = {
     tick_count = 0,
     -- Sequencer running state
     playing = false,
-    -- Output mode: "engine" or "midi"
-    output_mode = "engine",
+    -- Output mode: "polyperc" or "midi"
+    output_mode = "polyperc",
+    -- MIDI settings
+    selected_midi_device = "DIN",
+    midi_channel = 1,
+    -- PolyPerc parameter values (tracked for display)
+    polyperc_cutoff = 800,
+    polyperc_release = 1.0,
+    polyperc_pw = 0.5,
     -- Currently playing notes (for note off tracking)
     active_notes = {},
     -- Grid modifier key state (1,3 held for toggling active state)
@@ -56,14 +73,15 @@ state = {
 -- UI Pages
 PAGES = {
     GLOBAL = 1,
-    NOTE = 2
+    NOTE = 2,
+    OUTPUT = 3
 }
 
 -- Page parameters for each page
 page_params = {
     [PAGES.GLOBAL] = {
         { name = "TEMPO", key = "tempo", min = 20, max = 300, default = 120, format = "%d" },
-        { name = "OUTPUT", key = "output", options = {"engine", "midi"}, default = 1 },
+        { name = "OUTPUT", key = "output", options = OUTPUT_OPTIONS, default = 1 },
         { name = "RESET X", key = "reset_x", min = 1, max = 5, default = 1, format = "%d" },
         { name = "RESET Y", key = "reset_y", min = 1, max = 5, default = 1, format = "%d" }
     },
@@ -82,9 +100,30 @@ page_params = {
     }
 }
 
+-- Dynamic OUTPUT page parameters
+function get_output_page_params()
+    local params_list = {}
+
+    -- Show current output mode as read-only header
+    table.insert(params_list, { name = "MODE", key = "current_mode", read_only = true })
+
+    if state.output_mode == "midi" then
+        -- MIDI-specific params
+        table.insert(params_list, { name = "DEVICE", key = "midi_device", options = get_midi_device_options(), default = 1 })
+        table.insert(params_list, { name = "CHANNEL", key = "midi_channel", min = 1, max = 16, default = 1, format = "%d" })
+    else
+        -- PolyPerc params
+        for _, param in ipairs(POLYPERC_PARAMS) do
+            table.insert(params_list, param)
+        end
+    end
+
+    return params_list
+end
+
 -- Current page and selected parameter
 ui = {
-    current_page = PAGES.NOTE,
+    current_page = PAGES.GLOBAL,
     selected_param = 1
 }
 
@@ -103,6 +142,72 @@ local blink_counter = 0
 
 -- Note names for display
 local NOTE_NAMES = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"}
+
+-- MIDI device discovery
+function get_midi_device_options()
+    local options = {}
+
+    -- Add "DIN" for hardware MIDI out port
+    table.insert(options, "DIN")
+
+    -- Guard against midi.devices being nil
+    if not midi.devices then
+        return options
+    end
+
+    -- Add connected USB MIDI devices from midi.devices
+    for i = 1, #midi.devices do
+        local device = midi.devices[i]
+        if device and device.name then
+            table.insert(options, device.name)
+        end
+    end
+
+    return options
+end
+
+-- Get current MIDI device index
+function get_current_midi_device_index()
+    local options = get_midi_device_options()
+    for i, name in ipairs(options) do
+        if name == state.selected_midi_device then
+            return i
+        end
+    end
+    return 1
+end
+
+-- Connect to selected MIDI device
+function connect_midi_device()
+    local device_name = state.selected_midi_device
+
+    if device_name == "DIN" then
+        -- Connect to hardware DIN MIDI out (port 1)
+        midi_out = midi.connect(1)
+    else
+        -- Find device index by name
+        for i = 1, #midi.devices do
+            if midi.devices[i] and midi.devices[i].name == device_name then
+                midi_out = midi.connect(i)
+                break
+            end
+        end
+    end
+
+    if not midi_out then
+        -- Fallback to port 1 if device not found
+        midi_out = midi.connect(1)
+    end
+end
+
+-- Select output mode
+function select_output_mode(mode_name)
+    if mode_name == "MIDI" then
+        state.output_mode = "midi"
+    else
+        state.output_mode = "polyperc"
+    end
+end
 
 -- Initialize the script
 function init()
@@ -132,8 +237,10 @@ function init()
     end
 
     -- Initialize MIDI
-    midi_out = midi.connect(1)
-    midi_out.event = function(data) end -- Not handling input
+    connect_midi_device()
+    if midi_out then
+        midi_out.event = function(data) end -- Not handling input
+    end
 
     -- Set initial tempo
     params:set("clock_tempo", 120)
@@ -198,22 +305,20 @@ function wrap_position(pos, min, max)
     return ((pos - min) % range) + min
 end
 
--- Trigger a note (either engine or MIDI)
+-- Trigger a note (either PolyPerc or MIDI)
 function trigger_note(cell)
-    local hz = midi_to_hz(cell.note)
-
-    if state.output_mode == "engine" then
-        -- PolyPerc engine
-        engine.hz(hz)
-    else
+    if state.output_mode == "midi" then
         -- MIDI output
-        midi_out:note_on(cell.note, cell.velocity)
-
-        -- Schedule note off
+        midi_out:note_on(cell.note, cell.velocity, state.midi_channel)
         clock.run(function()
             clock.sleep(cell.duration)
-            midi_out:note_off(cell.note, 0)
+            midi_out:note_off(cell.note, 0, state.midi_channel)
         end)
+    else
+        -- PolyPerc output
+        if engine.hz then
+            engine.hz(midi_to_hz(cell.note))
+        end
     end
 end
 
@@ -239,7 +344,7 @@ g.key = function(x, y, z)
                 -- Stop all MIDI notes
                 if state.output_mode == "midi" then
                     for note = 0, 127 do
-                        midi_out:note_off(note, 0)
+                        midi_out:note_off(note, 0, state.midi_channel)
                     end
                 end
             end
@@ -345,7 +450,7 @@ function enc(n, d)
     if n == 1 then
         -- Page navigation
         if d > 0 then
-            ui.current_page = math.min(ui.current_page + 1, 2)
+            ui.current_page = math.min(ui.current_page + 1, 3)
         else
             ui.current_page = math.max(ui.current_page - 1, 1)
         end
@@ -354,7 +459,7 @@ function enc(n, d)
 
     elseif n == 2 then
         -- Parameter selection
-        local params_list = page_params[ui.current_page]
+        local params_list = get_params_for_current_page()
         if d > 0 then
             ui.selected_param = math.min(ui.selected_param + 1, #params_list)
         else
@@ -364,9 +469,22 @@ function enc(n, d)
 
     elseif n == 3 then
         -- Parameter value adjustment
-        adjust_param(d)
+        if ui.current_page == PAGES.OUTPUT then
+            adjust_output_param(d)
+        else
+            adjust_param(d)
+        end
         grid_redraw()
         redraw()
+    end
+end
+
+-- Get parameters for current page
+function get_params_for_current_page()
+    if ui.current_page == PAGES.OUTPUT then
+        return get_output_page_params()
+    else
+        return page_params[ui.current_page]
     end
 end
 
@@ -384,9 +502,9 @@ function adjust_param(delta)
             local new_tempo = util.clamp(params:get("clock_tempo") + delta, param.min, param.max)
             params:set("clock_tempo", new_tempo)
         elseif param.key == "output" then
-            local current = state.output_mode == "engine" and 1 or 2
-            local new_val = delta > 0 and 2 or 1
-            state.output_mode = param.options[new_val]
+            local current_idx = state.output_mode == "midi" and 2 or 1
+            local new_idx = util.clamp(current_idx + delta, 1, #OUTPUT_OPTIONS)
+            select_output_mode(OUTPUT_OPTIONS[new_idx])
         elseif param.key == "reset_x" then
             reset_pos.reset_x = util.clamp(reset_pos.reset_x + delta, param.min, param.max)
         elseif param.key == "reset_y" then
@@ -419,6 +537,63 @@ function adjust_param(delta)
     end
 end
 
+-- Adjust OUTPUT page parameters
+function adjust_output_param(delta)
+    local params_list = get_output_page_params()
+    local param = params_list[ui.selected_param]
+
+    if param.read_only then
+        return
+    elseif param.key == "midi_device" then
+        local options = get_midi_device_options()
+        local current_idx = get_current_midi_device_index()
+        local new_idx = util.clamp(current_idx + delta, 1, #options)
+        state.selected_midi_device = options[new_idx]
+        connect_midi_device()
+    elseif param.key == "midi_channel" then
+        state.midi_channel = util.clamp(state.midi_channel + delta, param.min, param.max)
+    else
+        -- PolyPerc numeric parameter
+        local current_val = get_polyperc_param_value(param.key)
+        local step = 1
+        if param.format and string.find(param.format, "%%%.[23]f") then
+            step = 0.01
+        elseif param.format and string.find(param.format, "%%%.1f") then
+            step = 0.1
+        end
+        local new_val = util.clamp(current_val + (delta * step), param.min, param.max)
+        set_polyperc_param(param.key, new_val)
+    end
+end
+
+-- Get PolyPerc parameter value from state
+function get_polyperc_param_value(key)
+    if key == "cutoff" then
+        return state.polyperc_cutoff
+    elseif key == "release" then
+        return state.polyperc_release
+    elseif key == "pw" then
+        return state.polyperc_pw
+    end
+    return 0
+end
+
+-- Set PolyPerc parameter value (update state and engine)
+function set_polyperc_param(key, value)
+    -- Update state
+    if key == "cutoff" then
+        state.polyperc_cutoff = value
+    elseif key == "release" then
+        state.polyperc_release = value
+    elseif key == "pw" then
+        state.polyperc_pw = value
+    end
+    -- Send to engine
+    if engine[key] then
+        engine[key](value)
+    end
+end
+
 -- Key handler
 function key(n, z)
     if z == 1 then -- Key press
@@ -448,13 +623,17 @@ function get_param_value(param)
         if param.key == "tempo" then
             return string.format(param.format, params:get("clock_tempo"))
         elseif param.key == "output" then
-            return state.output_mode:upper()
+            if state.output_mode == "midi" then
+                return "MIDI"
+            else
+                return "PolyPerc"
+            end
         elseif param.key == "reset_x" then
             return string.format(param.format, reset_pos.reset_x)
         elseif param.key == "reset_y" then
             return string.format(param.format, reset_pos.reset_y)
         end
-    else -- PAGES.NOTE
+    elseif ui.current_page == PAGES.NOTE then
         local cell = cells[state.sel_x][state.sel_y]
 
         if param.key == "cell_x" then
@@ -480,6 +659,26 @@ function get_param_value(param)
         elseif param.key == "y" then
             return string.format(param.format, cell.y)
         end
+    elseif ui.current_page == PAGES.OUTPUT then
+        if param.key == "current_mode" then
+            if state.output_mode == "midi" then
+                return "MIDI"
+            else
+                return "PolyPerc"
+            end
+        elseif param.key == "midi_device" then
+            return state.selected_midi_device
+        elseif param.key == "midi_channel" then
+            return string.format("%d", state.midi_channel)
+        else
+            -- PolyPerc parameter
+            local val = get_polyperc_param_value(param.key)
+            if param.format then
+                return string.format(param.format, val)
+            else
+                return tostring(val)
+            end
+        end
     end
     return ""
 end
@@ -489,9 +688,9 @@ function redraw()
     screen.clear()
     screen.level(15)
 
-    local page_names = {"GLOBAL", "NOTE"}
+    local page_names = {"GLOBAL", "NOTE", "OUTPUT"}
     local num_pages = #page_names
-    local params_list = page_params[ui.current_page]
+    local params_list = get_params_for_current_page()
 
     -- Draw page indicator lines at the top
     local line_width = (SCREEN_WIDTH - ((num_pages + 1) * PAGE_INDICATOR_PADDING)) / num_pages
@@ -558,7 +757,7 @@ function cleanup()
     -- Stop all MIDI notes
     if midi_out then
         for note = 0, 127 do
-            midi_out:note_off(note, 0)
+            midi_out:note_off(note, 0, state.midi_channel)
         end
     end
 end
