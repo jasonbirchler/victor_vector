@@ -10,6 +10,9 @@
 --
 -- K2 = Toggle cell state
 -- K3 = Reset start point
+-- Grid (1,6) = Randomize move vectors (x, y)
+-- Grid (1,7) = Randomize clock vectors (xt, yt)
+-- Grid (1,8) = Restore vector defaults
 
 engine.name = "PolyPerc"
 
@@ -22,8 +25,12 @@ local midi_out = nil
 local midi_device = nil
 
 -- 5x5 grid cell data
--- cells[x][y] = { note, velocity, duration, active }
+-- cells[x][y] = { note, velocity, duration, active, xt, x, yt, y }
 cells = {}
+
+-- Default cell values for restore functionality
+-- default_cells[x][y] = { xt, x, yt, y }
+default_cells = {}
 
 -- Vector reset position (global - where playback resets to)
 reset_pos = {
@@ -67,7 +74,10 @@ state = {
     -- Grid modifier key state (1,3 held for toggling active state)
     modifier_held = false,
     -- Playback reset button state
-    playback_reset_pressed = false
+    playback_reset_pressed = false,
+    -- Vectors randomized state (for visual feedback)
+    move_vectors_randomized = false,
+    clock_vectors_randomized = false
 }
 
 -- UI Pages
@@ -236,6 +246,19 @@ function init()
         end
     end
 
+    -- Store default vector values for restore functionality
+    for x = 1, 5 do
+        default_cells[x] = {}
+        for y = 1, 5 do
+            default_cells[x][y] = {
+                xt = cells[x][y].xt,
+                x = cells[x][y].x,
+                yt = cells[x][y].yt,
+                y = cells[x][y].y
+            }
+        end
+    end
+
     -- Initialize MIDI
     connect_midi_device()
     if midi_out then
@@ -305,6 +328,42 @@ function wrap_position(pos, min, max)
     return ((pos - min) % range) + min
 end
 
+-- Randomize move vectors (x, y) for all cells
+function randomize_move_vectors()
+    for x = 1, 5 do
+        for y = 1, 5 do
+            cells[x][y].x = math.random(0, 4)
+            cells[x][y].y = math.random(0, 4)
+        end
+    end
+    state.move_vectors_randomized = true
+end
+
+-- Randomize clock vectors (xt, yt) for all cells
+function randomize_clock_vectors()
+    for x = 1, 5 do
+        for y = 1, 5 do
+            cells[x][y].xt = math.random(1, 16)
+            cells[x][y].yt = math.random(1, 16)
+        end
+    end
+    state.clock_vectors_randomized = true
+end
+
+-- Restore vector parameters (xt, x, yt, y) to default values
+function restore_vectors()
+    for x = 1, 5 do
+        for y = 1, 5 do
+            cells[x][y].xt = default_cells[x][y].xt
+            cells[x][y].x = default_cells[x][y].x
+            cells[x][y].yt = default_cells[x][y].yt
+            cells[x][y].y = default_cells[x][y].y
+        end
+    end
+    state.move_vectors_randomized = false
+    state.clock_vectors_randomized = false
+end
+
 -- Trigger a note (either PolyPerc or MIDI)
 function trigger_note(cell)
     if state.output_mode == "midi" then
@@ -354,17 +413,41 @@ g.key = function(x, y, z)
         end
 
         -- Check if modifier button for toggling active state is held
-        if x == 1 and y == 5 then
+        if x == 1 and y == 3 then
             state.modifier_held = true
             grid_redraw()
             return
         end
 
         -- Check if reset is pressed
-        if x == 1 and y == 3 then
+        if x == 3 and y == 1 then
             state.playback_reset_pressed = true
             reset_playback()
             grid_redraw()
+            return
+        end
+
+        -- Check if randomize button (1,6) is pressed
+        if x == 1 and y == 6 then
+            randomize_move_vectors()
+            grid_redraw()
+            redraw()
+            return
+        end
+        
+        -- Check if randomize button (1,7) is pressed
+        if x == 1 and y == 7 then
+            randomize_clock_vectors()
+            grid_redraw()
+            redraw()
+            return
+        end
+
+        -- Check if restore defaults button (1,8) is pressed
+        if x == 1 and y == 8 then
+            restore_vectors()
+            grid_redraw()
+            redraw()
             return
         end
 
@@ -386,15 +469,15 @@ g.key = function(x, y, z)
             redraw()
         end
     else -- Key release (z == 0)
-        -- Check if modifier button (1,5) released
-        if x == 1 and y == 5 then
+        -- Check if modifier button (1,3) released
+        if x == 1 and y == 3 then
             state.modifier_held = false
             grid_redraw()
             return
         end
 
-        -- Check if reset button (1,3) released
-        if x == 1 and y == 3 then
+        -- Check if reset button (3,1) released
+        if x == 3 and y == 1 then
             state.playback_reset_pressed = false
             grid_redraw()
             return
@@ -436,11 +519,20 @@ function grid_redraw()
         g:led(1, 1, state.playing and 7 or 3)
     end
 
-    -- Active State Modifier button (1,3) indicator
-    g:led(1, 5, state.modifier_held and 7 or 3)
+    -- Active State Modifier button (1,5) indicator
+    g:led(1, 3, state.modifier_held and 7 or 3)
 
-    -- Playback reset button (1,5) indicator
-    g:led(1, 3, state.playback_reset_pressed and 7 or 3)
+    -- Playback reset button (1,3) indicator
+    g:led(3, 1, state.playback_reset_pressed and 7 or 3)
+
+    -- Randomize move vector button indicator
+    g:led(1, 6, state.move_vectors_randomized and 7 or 3)
+
+    -- Randomize clock vector button indicator
+    g:led(1, 7, state.clock_vectors_randomized and 7 or 3)
+
+    -- Restore defaults button (1,8) indicator
+    g:led(1, 8, 3)
 
     g:refresh()
 end
