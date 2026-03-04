@@ -196,10 +196,12 @@ function connect_midi_device()
         -- Connect to hardware DIN MIDI out (port 1)
         midi_out = midi.connect(1)
     else
-        -- Find device index by name
-        for i = 1, #midi.devices do
-            if midi.devices[i] and midi.devices[i].name == device_name then
-                midi_out = midi.connect(i)
+        -- Find device by name and use its port property
+        -- Note: midi.devices is a sparse array, so we must use pairs()
+        -- and use device.port (not the array index) for midi.connect()
+        for _, device in pairs(midi.devices) do
+            if device and device.name == device_name then
+                midi_out = midi.connect(device.port)
                 break
             end
         end
@@ -374,11 +376,13 @@ end
 function trigger_note(cell)
     if state.output_mode == "midi" then
         -- MIDI output
-        midi_out:note_on(cell.note, cell.velocity, state.midi_channel)
-        clock.run(function()
-            clock.sleep(cell.duration)
-            midi_out:note_off(cell.note, 0, state.midi_channel)
-        end)
+        if midi_out then
+            midi_out:note_on(cell.note, cell.velocity, state.midi_channel)
+            clock.run(function()
+                clock.sleep(cell.duration)
+                midi_out:note_off(cell.note, 0, state.midi_channel)
+            end)
+        end
     else
         -- PolyPerc output
         if engine.hz then
