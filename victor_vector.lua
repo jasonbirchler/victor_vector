@@ -13,6 +13,7 @@
 -- Grid (1,6) = Randomize move vectors (x, y)
 -- Grid (1,7) = Randomize clock vectors (xt, yt)
 -- Grid (1,8) = Restore vector defaults
+-- Cell Page "RND STEP" = Randomize x/y step for selected cell
 
 engine.name = "PolyPerc"
 
@@ -106,6 +107,7 @@ page_params = {
         { name = "PLAY POS", key = "play_pos", read_only = true },
         { name = "X STEP", key = "x", min = 0, max = 4, default = 1, format = "%d" },
         { name = "Y STEP", key = "y", min = 0, max = 4, default = 0, format = "%d" },
+        { name = "RND STEP", key = "rnd_step", options = {"off", "on"}, default = 1 },
         { name = "X TIME", key = "xt", min = 1, max = 16, default = 1, format = "%d" },
         { name = "Y TIME", key = "yt", min = 1, max = 16, default = 1, format = "%d" }
     }
@@ -234,6 +236,7 @@ function init()
                 duration = 0.5,
                 active = (x + y) % 3 ~= 0, -- Some cells active by default
                 reset = false,
+                rnd_step = false,
                 -- Vector movement parameters (per-cell)
                 xt = 1,  -- X trigger interval
                 x = 1,   -- X step size
@@ -316,6 +319,13 @@ function sequencer_clock()
 
             -- Trigger note if cell is active
             local cell = cells[state.pos_x][state.pos_y]
+
+            -- Randomize x/y step values if rnd_step is enabled
+            if cell.rnd_step then
+                cell.x = math.random(0, 4)
+                cell.y = math.random(0, 4)
+            end
+
             if cell.active then
                 trigger_note(cell)
             end
@@ -637,6 +647,8 @@ function adjust_param(delta)
             cell.yt = util.clamp(cell.yt + delta, param.min, param.max)
         elseif param.key == "y" then
             cell.y = util.clamp(cell.y + delta, param.min, param.max)
+        elseif param.key == "rnd_step" then
+            cell.rnd_step = not cell.rnd_step
         end
     end
 end
@@ -764,6 +776,8 @@ function get_param_value(param)
             return string.format(param.format, cell.yt)
         elseif param.key == "y" then
             return string.format(param.format, cell.y)
+        elseif param.key == "rnd_step" then
+            return cell.rnd_step and "ON" or "OFF"
         end
     elseif ui.current_page == PAGES.OUTPUT then
         if param.key == "current_mode" then
