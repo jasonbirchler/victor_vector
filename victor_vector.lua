@@ -228,7 +228,7 @@ function init()
         for y = 1, 5 do
             cells[x][y] = {
                 note = 36 + (x-1) * 12 + (y-1) * 2, -- Pentatonic-ish distribution
-                velocity = 64,
+                velocity = math.random(64, 127),
                 duration = 0.5,
                 active = (x + y) % 3 ~= 0, -- Some cells active by default
                 reset = false,
