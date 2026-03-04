@@ -83,7 +83,7 @@ state = {
 -- UI Pages
 PAGES = {
     GLOBAL = 1,
-    NOTE = 2,
+    CELL = 2,
     OUTPUT = 3
 }
 
@@ -95,13 +95,14 @@ page_params = {
         { name = "RESET X", key = "reset_x", min = 1, max = 5, default = 1, format = "%d" },
         { name = "RESET Y", key = "reset_y", min = 1, max = 5, default = 1, format = "%d" }
     },
-    [PAGES.NOTE] = {
+    [PAGES.CELL] = {
         { name = "CELL X", key = "cell_x", min = 1, max = 5, default = 1, format = "%d" },
         { name = "CELL Y", key = "cell_y", min = 1, max = 5, default = 1, format = "%d" },
         { name = "NOTE", key = "note", min = 0, max = 127, default = 60, format = "%d" },
         { name = "VELOCITY", key = "velocity", min = 0, max = 127, default = 64, format = "%d" },
         { name = "DURATION", key = "duration", min = 0.1, max = 4.0, default = 0.5, format = "%.2f" },
         { name = "ACTIVE", key = "active", options = {"off", "on"}, default = 2 },
+        { name = "RESET", key = "reset", options = {"off", "on"}, default = 1 },
         { name = "PLAY POS", key = "play_pos", read_only = true },
         { name = "X STEP", key = "x", min = 0, max = 4, default = 1, format = "%d" },
         { name = "Y STEP", key = "y", min = 0, max = 4, default = 0, format = "%d" },
@@ -230,6 +231,7 @@ function init()
                 velocity = 64,
                 duration = 0.5,
                 active = (x + y) % 3 ~= 0, -- Some cells active by default
+                reset = false,
                 -- Vector movement parameters (per-cell)
                 xt = 1,  -- X trigger interval
                 x = 1,   -- X step size
@@ -314,6 +316,10 @@ function sequencer_clock()
             local cell = cells[state.pos_x][state.pos_y]
             if cell.active then
                 trigger_note(cell)
+            end
+
+            if cell.reset then
+                reset_playback()
             end
 
             grid_redraw()
@@ -463,7 +469,7 @@ g.key = function(x, y, z)
                 -- Select the cell for editing
                 state.sel_x = grid_x
                 state.sel_y = grid_y
-                ui.current_page = PAGES.NOTE
+                ui.current_page = PAGES.CELL
             end
             grid_redraw()
             redraw()
@@ -617,6 +623,8 @@ function adjust_param(delta)
             cell.duration = util.clamp(cell.duration + delta * 0.1, param.min, param.max)
         elseif param.key == "active" then
             cell.active = not cell.active
+        elseif param.key == "reset" then
+            cell.reset = not cell.reset
         elseif param.key == "xt" then
             cell.xt = util.clamp(cell.xt + delta, param.min, param.max)
         elseif param.key == "x" then
@@ -725,7 +733,7 @@ function get_param_value(param)
         elseif param.key == "reset_y" then
             return string.format(param.format, reset_pos.reset_y)
         end
-    elseif ui.current_page == PAGES.NOTE then
+    elseif ui.current_page == PAGES.CELL then
         local cell = cells[state.sel_x][state.sel_y]
 
         if param.key == "cell_x" then
@@ -740,6 +748,8 @@ function get_param_value(param)
             return string.format(param.format, cell.duration)
         elseif param.key == "active" then
             return cell.active and "ON" or "OFF"
+        elseif param.key == "reset" then
+            return cell.reset and "ON" or "OFF"
         elseif param.key == "play_pos" then
             return "[" .. state.pos_x .. "," .. state.pos_y .. "]"
         elseif param.key == "xt" then
@@ -780,7 +790,7 @@ function redraw()
     screen.clear()
     screen.level(15)
 
-    local page_names = {"GLOBAL", "NOTE", "OUTPUT"}
+    local page_names = {"GLOBAL", "CELL", "OUTPUT"}
     local num_pages = #page_names
     local params_list = get_params_for_current_page()
 
